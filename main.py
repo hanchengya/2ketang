@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 第二课堂自动登录系统
 简单版 - 直接运行即可登录
@@ -127,15 +128,22 @@ def login():
                 # 生成轨迹
                 track = generate_track(slide_distance)
                 
-                # 执行滑动
+                # 执行滑动 - 快速直接滑动
                 slider = driver.find_element(By.CLASS_NAME, "slide-verify-slider-mask-item")
                 actions = ActionChains(driver)
                 actions.click_and_hold(slider).perform()
-                time.sleep(0.1)
+                time.sleep(0.05)
                 
-                for x in track:
-                    actions.move_by_offset(x, random.randint(-1, 1)).perform()
-                    time.sleep(0.001)  # 更快的滑动速度
+                # 快速滑动：分3步完成
+                step1 = int(slide_distance * 0.7)
+                step2 = int(slide_distance * 0.2)
+                step3 = slide_distance - step1 - step2
+                
+                actions.move_by_offset(step1, 0).perform()
+                time.sleep(0.01)
+                actions.move_by_offset(step2, 0).perform()
+                time.sleep(0.01)
+                actions.move_by_offset(step3, random.randint(-2, 2)).perform()
                 
                 actions.release().perform()
                 time.sleep(2)
@@ -145,11 +153,10 @@ def login():
                     current_url = driver.current_url
                     if 'login' not in current_url.lower():
                         print(f"\n[5] 登录成功! 当前页面: {current_url}")
-                        return True
+                        return driver  # 返回driver供后续使用
                 except:
-                    # 可能页面跳转导致异常，视为成功
                     print("\n[5] 登录成功!")
-                    return True
+                    return driver
                 
                 # 刷新验证码
                 try:
@@ -160,35 +167,35 @@ def login():
                     pass
                     
             except Exception as e:
-                # 检查是否是因为登录成功导致的窗口关闭
                 try:
                     current_url = driver.current_url
                     if 'login' not in current_url.lower():
                         print(f"\n[5] 登录成功! 当前页面: {current_url}")
-                        return True
+                        return driver
                 except:
                     print("\n[5] 登录成功!")
-                    return True
+                    return driver
                 print(f"    异常: {e}")
                 break
         
         # 最终检查
         if 'login' not in driver.current_url.lower():
             print(f"\n[5] 登录成功! 当前页面: {driver.current_url}")
-            return True
+            return driver
         else:
             print("\n[5] 登录失败")
-            return False
+            driver.quit()
+            return None
             
     except Exception as e:
         print(f"\n登录异常: {e}")
-        return False
-        
-    finally:
-        print("\n等待5秒后关闭浏览器...")
-        time.sleep(5)
         driver.quit()
+        return None
 
 
 if __name__ == "__main__":
-    login()
+    driver = login()
+    if driver:
+        print("\n浏览器保持打开状态，按回车键关闭...")
+        input()
+        driver.quit()
