@@ -58,3 +58,6 @@ Thumbs.db
 
 # 归档（爬取产物、旧 HTML、调试页）
 scripts/archive/
+
+# Claude Code 本地配置
+.claude/

@@ -67,6 +67,7 @@ def login():
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-extensions')
+    options.add_argument('--headless=new')
     options.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
     options.page_load_strategy = 'eager'  # 加快页面加载
     
