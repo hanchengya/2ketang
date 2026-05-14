@@ -1,0 +1,103 @@
+# 第二课堂活动通知系统 · docker-compose
+#
+# 三个服务:
+#   mysql    - 数据库(数据持久化到 docker volume)
+#   backend  - FastAPI + Selenium 爬虫
+#   frontend - Vue 3 编译后静态文件 + nginx 反代 /api
+#
+# 端口对外暴露(均为非标准端口,避免和宿主机其它项目冲突):
+#   18080 → frontend(nginx)         浏览器访问 http://10.5.80.8:18080
+#   18000 → backend(uvicorn)        API 直连(可选,正常不用)
+#   mysql 不对外开端口,只在 docker 内部网络访问
+
+name: 2ketang
+
+services:
+  # ---------------- MySQL ----------------
+  mysql:
+    image: mysql:8.0
+    container_name: 2ketang-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME:-2ketang}
+      MYSQL_USER: ${DB_USER:-2ketang_app}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=caching_sha2_password
+    volumes:
+      - mysql_data:/var/lib/mysql
+      # mysql-init 目录里放 .sql / .sh,容器首次启动会自动执行
+      - ./mysql-init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - 2ketang-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  # ---------------- Backend (FastAPI + 爬虫) ----------------
+  backend:
+    build: ./backend
+    container_name: 2ketang-backend
+    restart: always
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      # 数据库(指向容器内的 mysql 服务名,docker DNS 自动解析)
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: ${DB_USER:-2ketang_app}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-2ketang}
+      DB_CHARSET: utf8mb4
+      # 应用
+      TEST_MODE: "False"
+      DEBUG: "False"
+      SECRET_KEY: ${SECRET_KEY}
+      # 邮件
+      SENDER_EMAIL: ${SENDER_EMAIL}
+      EMAIL_AUTH_CODE: ${EMAIL_AUTH_CODE}
+      # 第二课堂登录
+      KETANG_USERNAME: ${KETANG_USERNAME}
+      KETANG_PASSWORD: ${KETANG_PASSWORD}
+      # 微信(配置在这里,但通知本身走云端代理)
+      WECHAT_APPID: ${WECHAT_APPID}
+      WECHAT_SECRET: ${WECHAT_SECRET}
+      WECHAT_MINIPROGRAM_STATE: ${WECHAT_MINIPROGRAM_STATE:-developer}
+      WECHAT_TMPL_SIGN_IN: ${WECHAT_TMPL_SIGN_IN}
+      # 通知代理地址(内网后端发通知时 HTTP 调它)
+      WECHAT_NOTIFY_PROXY_URL: ${WECHAT_NOTIFY_PROXY_URL:-http://47.108.86.137:8000/api/wechat}
+      TZ: Asia/Shanghai
+    ports:
+      - "18000:8000"
+    networks:
+      - 2ketang-net
+
+  # ---------------- Frontend (Vue + nginx) ----------------
+  frontend:
+    build: ./frontend
+    container_name: 2ketang-frontend
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "18080:80"
+    networks:
+      - 2ketang-net
+
+
+volumes:
+  mysql_data:
+    name: 2ketang_mysql_data
+
+networks:
+  2ketang-net:
+    driver: bridge
+    name: 2ketang-net

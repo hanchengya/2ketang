@@ -1,0 +1,28 @@
+# Frontend (Vite + Vue)
+
+# 依赖
+node_modules/
+
+# 构建产物
+dist/
+dist-ssr/
+*.local
+
+# 调试 / 测试 HTML
+debug_*.html
+test_*.html
+
+# 编辑器
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# 日志
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store

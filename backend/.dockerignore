@@ -1,0 +1,31 @@
+# 不要把这些塞进 Docker 镜像
+__pycache__/
+*.pyc
+*.pyo
+.git/
+.gitignore
+.venv/
+venv/
+env/
+.env
+.env.local
+.env.example
+*.sqlite*
+*.db
+.pytest_cache/
+.mypy_cache/
+.DS_Store
+*.log
+logs/
+tmp/
+node_modules/
+
+# 测试用脚本(在容器里不需要)
+test_*.py
+check_*.py
+fix_*.py
+
+# 一次性 SQL 文件(单独挂载到 mysql 容器,不放 backend 镜像)
+*.sql
+add_*.py
+update_*.py
