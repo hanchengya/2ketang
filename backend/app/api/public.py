@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.models import Activity, ActivityDetail
+from app.services.activity_status_service import maybe_reconcile
 
 router = APIRouter()
 
@@ -28,6 +29,9 @@ def list_activities(
     db: Session = Depends(get_db),
 ) -> Any:
     """活动列表。默认不展示`待审核`状态的活动。"""
+    # 列表前根据时间修正已过期的"进行中"/"报名中" (节流: 同进程 60s 内最多一次)
+    maybe_reconcile(db)
+
     query = db.query(Activity)
 
     fs = finish_status.strip()
@@ -73,6 +77,7 @@ def list_activities(
 @router.get("/activities/stats")
 def activity_stats(db: Session = Depends(get_db)) -> Any:
     """首页用的活动概况"""
+    maybe_reconcile(db)
     base = db.query(Activity).filter(
         (Activity.finish_status != "待审核") | (Activity.finish_status.is_(None))
     )

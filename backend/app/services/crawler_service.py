@@ -286,6 +286,19 @@ class CrawlerService:
         self.db.commit()
         self._log(f"成功保存 {total_saved} 个活动")
 
+        # 爬虫只爬"待审核/报名中/进行中"三个 tab,不爬"已结束",
+        # 所以一个进行中活动结束后状态不会再被覆盖。这里按时间修正。
+        try:
+            from app.services.activity_status_service import reconcile_activity_status
+            stats = reconcile_activity_status(self.db)
+            if stats["to_finished"] or stats["to_ongoing"]:
+                self._log(
+                    f"状态修正: {stats['to_finished']} 个 → 已结束, "
+                    f"{stats['to_ongoing']} 个 → 进行中"
+                )
+        except Exception as e:
+            self._log(f"状态修正失败: {e}")
+
     def _save_activity_details_to_db(self, details: List[Dict[str, Any]]):
         """保存活动详情到数据库"""
         self._log("保存活动详情到数据库...")
