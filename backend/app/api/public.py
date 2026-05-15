@@ -11,9 +11,11 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.models import Activity, ActivityDetail
-from app.services.activity_status_service import maybe_reconcile
 
 router = APIRouter()
+
+# 学生端默认隐藏的状态 (审核流相关 / 异常态)
+HIDDEN_STATUSES = {"审核中", "被驳回", "完结审核中", "完结被驳回"}
 
 
 def _to_iso(dt):
@@ -28,19 +30,17 @@ def list_activities(
     keyword: str = Query("", description="按活动名 / 主办方搜索"),
     db: Session = Depends(get_db),
 ) -> Any:
-    """活动列表。默认不展示`待审核`状态的活动。"""
-    # 列表前根据时间修正已过期的"进行中"/"报名中" (节流: 同进程 60s 内最多一次)
-    maybe_reconcile(db)
-
+    """
+    活动列表。状态以平台 tab 标签为准 (爬虫维护)。
+    默认隐藏 审核中 / 被驳回 / 完结审核中 / 完结被驳回 这类对学生不可见的状态。
+    """
     query = db.query(Activity)
 
     fs = finish_status.strip()
     if fs:
         query = query.filter(Activity.finish_status == fs)
     else:
-        query = query.filter(
-            (Activity.finish_status != "待审核") | (Activity.finish_status.is_(None))
-        )
+        query = query.filter(~Activity.finish_status.in_(HIDDEN_STATUSES))
 
     kw = keyword.strip()
     if kw:
@@ -76,11 +76,13 @@ def list_activities(
 
 @router.get("/activities/stats")
 def activity_stats(db: Session = Depends(get_db)) -> Any:
-    """首页用的活动概况"""
-    maybe_reconcile(db)
-    base = db.query(Activity).filter(
-        (Activity.finish_status != "待审核") | (Activity.finish_status.is_(None))
-    )
+    """
+    首页用的活动概况。
+    total: 学生可见的活动总数 (排除审核流相关状态)
+    enrolling: 报名中
+    ongoing: 进行中
+    """
+    base = db.query(Activity).filter(~Activity.finish_status.in_(HIDDEN_STATUSES))
     return {
         "total": base.count(),
         "enrolling": base.filter(Activity.finish_status == "报名中").count(),

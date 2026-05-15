@@ -2,242 +2,344 @@
 # -*- coding: utf-8 -*-
 """
 活动爬虫模块
-从crawl_activities.py改造而来，支持按标签页爬取
+
+平台 (https://2ketangpc.svtcc.edu.cn/communist/activityDown?oto=0)
+活动页有 10 个 tab,这里只关心带状态的 9 个 (tab-1 是"全部",是其它的并集,跳过):
+
+   tab-id     名称          数量级
+   tab-2      审核中        几十
+   tab-3      被驳回        百级
+   tab-4      报名中        几十
+   tab-5      待开始        个位
+   tab-6      进行中        几十
+   tab-7      待完结        百级
+   tab-8      完结审核中    百级
+   tab-9      完结被驳回    个位
+   tab-0      已完结        几千  ← 大头, 需要分页
+
+每个 tab 内的分页处理仿 student_crawler:
+  1. 进 tab 后请求 page_size = settings.PAGE_SIZE (2000)
+  2. 用首页实际返回数为真实 page_size
+  3. 翻页累积 + 按 actId 去重
 """
 import time
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from app.config import settings
 
 
-def click_tab(driver, tab_xpath: str, tab_name: str) -> bool:
-    """
-    点击标签页
+# (tab_id, 状态名)
+# 不包含 tab-1 "全部" (是其它 tab 的并集)
+ACTIVITY_TABS = [
+    ("tab-2", "审核中"),
+    ("tab-3", "被驳回"),
+    ("tab-4", "报名中"),
+    ("tab-5", "待开始"),
+    ("tab-6", "进行中"),
+    ("tab-7", "待完结"),
+    ("tab-8", "完结审核中"),
+    ("tab-9", "完结被驳回"),
+    ("tab-0", "已完结"),
+]
 
-    Args:
-        driver: WebDriver实例
-        tab_xpath: 标签页的xpath
-        tab_name: 标签页名称（用于日志）
 
-    Returns:
-        是否成功
-    """
+# ============ 基础动作 ============
+
+def click_tab(driver, tab_id: str, tab_name: str) -> bool:
+    """切换到指定 tab"""
     try:
-        print(f"[*] 点击 {tab_name} 标签页...")
-        tab = driver.find_element(By.XPATH, tab_xpath)
+        print(f"[*] 切到 {tab_name} ({tab_id})")
+        tab = driver.find_element(By.ID, tab_id)
         driver.execute_script("arguments[0].click();", tab)
         time.sleep(settings.CRAWL_DELAY)
         return True
     except Exception as e:
-        print(f"    点击 {tab_name} 标签页失败: {e}")
+        print(f"    切换 tab 失败: {e}")
         return False
 
 
 def set_page_size(driver, size: int) -> bool:
-    """设置每页显示条数"""
+    """请求把活动列表每页条数设为 size。实际是否生效以页面响应为准。"""
     try:
-        time.sleep(3)
+        time.sleep(2)
         page_input = driver.find_element(By.CSS_SELECTOR, ".page-input input.el-input__inner")
         driver.execute_script("arguments[0].scrollIntoView(true);", page_input)
-        time.sleep(0.5)
-        page_input.click()
         time.sleep(0.3)
-        # 使用JS直接清空并设置值，避免clear()不生效的问题
+        page_input.click()
+        time.sleep(0.2)
         driver.execute_script("arguments[0].value = '';", page_input)
         driver.execute_script(f"arguments[0].value = '{size}';", page_input)
-        # 触发input事件让Vue响应
-        driver.execute_script("arguments[0].dispatchEvent(new Event('input', { bubbles: true }));", page_input)
-        print(f"    已输入每页 {size} 条")
-        time.sleep(0.5)
+        driver.execute_script(
+            "arguments[0].dispatchEvent(new Event('input', { bubbles: true }));", page_input
+        )
         page_input.send_keys(Keys.ENTER)
-        print(f"    按回车键触发加载...")
+        time.sleep(3)
         return True
     except Exception as e:
-        print(f"    设置每页条数失败: {e}")
+        print(f"    设置 page_size 失败 (容忍): {e}")
         return False
 
 
-def get_current_page_data(driver, prev_first_id=None, max_wait=15) -> Optional[List[Dict[str, Any]]]:
-    """获取当前页的活动数据"""
-    script = """
-    function findActivityData(el) {
-        if (el.__vue__) {
-            var vm = el.__vue__;
-            var data = vm.$data || {};
-            if (data.data && Array.isArray(data.data) && data.data.length > 0) {
-                var item = data.data[0];
-                if (item && item.actId && item.name) {
-                    return data.data;
-                }
+def get_page_info(driver) -> Optional[Dict[str, Any]]:
+    """从激活 tab 的 .el-pagination 读 total / currentPage"""
+    script = r"""
+    var panes = document.querySelectorAll('.el-tab-pane');
+    var pag = null;
+    panes.forEach(function(p) {
+        if (getComputedStyle(p).display === 'none') return;
+        var x = p.querySelector('.el-pagination');
+        if (x) pag = x;
+    });
+    if (!pag) pag = document.querySelector('.el-pagination');
+    if (!pag) return null;
+
+    var totalText = (pag.querySelector('.el-pagination__total') || {}).innerText || '';
+    var total = parseInt(totalText.replace(/[^0-9]/g, ''), 10);
+
+    var activeLi = pag.querySelector('li.number.active') || pag.querySelector('li.active');
+    var currentPage = activeLi ? parseInt(activeLi.innerText, 10) : 1;
+
+    return { total: isNaN(total) ? null : total, currentPage: currentPage };
+    """
+    try:
+        return driver.execute_script(script)
+    except Exception:
+        return None
+
+
+def go_to_next_page(driver) -> str:
+    """点击激活 tab 内的下一页按钮。返回 'ok' / 'disabled' / 'no-btn'"""
+    script = r"""
+    var panes = document.querySelectorAll('.el-tab-pane');
+    var btn = null;
+    panes.forEach(function(p) {
+        if (getComputedStyle(p).display === 'none') return;
+        var b = p.querySelector('.el-pagination .btn-next');
+        if (b) btn = b;
+    });
+    if (!btn) btn = document.querySelector('.el-pagination .btn-next');
+    if (!btn) return 'no-btn';
+    if (btn.disabled || btn.classList.contains('disabled') || btn.classList.contains('is-disabled')) {
+        return 'disabled';
+    }
+    btn.click();
+    return 'ok';
+    """
+    try:
+        return driver.execute_script(script) or "no-btn"
+    except Exception:
+        return "no-btn"
+
+
+# ============ 数据读取 ============
+
+_FIND_ACTIVITY_DATA = r"""
+function looksLikeActivity(item) {
+    return !!(item && typeof item === 'object' && item.actId && item.name);
+}
+function collect(el, out) {
+    if (el.__vue__) {
+        var data = el.__vue__.$data || {};
+        for (var k in data) {
+            var arr = data[k];
+            if (Array.isArray(arr) && arr.length > 0 && looksLikeActivity(arr[0])) {
+                out.push({ key: k, data: arr, len: arr.length });
             }
         }
-        for (var i = 0; i < el.children.length; i++) {
-            var result = findActivityData(el.children[i]);
-            if (result) return result;
-        }
-        return null;
     }
-    return findActivityData(document.body);
+    for (var i = 0; i < el.children.length; i++) collect(el.children[i], out);
+}
+var out = [];
+collect(document.body, out);
+if (out.length === 0) return null;
+// 取最大数组,防止拿到分页缓存子集
+out.sort(function(a, b){ return b.len - a.len; });
+return out[0].data;
+"""
+
+
+def get_current_page_data(driver) -> Optional[List[Dict[str, Any]]]:
+    try:
+        return driver.execute_script("return (function(){" + _FIND_ACTIVITY_DATA + "})()")
+    except Exception as e:
+        print(f"    读取页面数据失败: {e}")
+        return None
+
+
+def _wait_for_data_change(driver, prev_first_id, max_wait_sec: int = 10) -> Optional[List[Dict[str, Any]]]:
+    """等待 vue $data 里首条 actId 与上一页不同。"""
+    deadline = time.time() + max_wait_sec
+    while time.time() < deadline:
+        rows = get_current_page_data(driver)
+        if rows and len(rows) > 0:
+            first_id = rows[0].get("actId")
+            if prev_first_id is None or first_id != prev_first_id:
+                return rows
+        time.sleep(0.5)
+    return get_current_page_data(driver)
+
+
+# ============ 单 tab 完整爬取 (带分页) ============
+
+def crawl_one_tab(driver, tab_id: str, tab_name: str, stop_check: Optional[Callable] = None) -> List[Dict[str, Any]]:
     """
-
-    if prev_first_id:
-        print(f"    等待数据更新 (上一页首条ID: {prev_first_id})...")
-        for i in range(max_wait):
-            data = driver.execute_script(script)
-            if data and len(data) > 0:
-                current_first_id = data[0].get('actId')
-                if current_first_id != prev_first_id:
-                    print(f"    数据已更新 (新首条ID: {current_first_id}, 共{len(data)}条)")
-                    return data
-                else:
-                    print(f"    等待中... ({i+1}/{max_wait})")
-            time.sleep(1)
-        print(f"    警告: 等待{max_wait}秒后数据仍未更新")
-
-    return driver.execute_script(script)
-
-
-def crawl_activities_by_tab(driver, tab_xpath: str, tab_name: str, prev_first_id: int = None) -> List[Dict[str, Any]]:
-    """
-    按标签页爬取活动
-
-    Args:
-        driver: WebDriver实例
-        tab_xpath: 标签页xpath
-        tab_name: 标签页名称
-        prev_first_id: 上一个标签页的第一条数据ID（用于检测数据是否更新）
-
-    Returns:
-        活动列表
+    切到指定 tab, 翻完所有页, 返回去重后的活动列表 (每条带 finishStatus = tab_name)。
     """
     print(f"\n{'='*60}")
-    print(f"开始爬取 {tab_name} 活动")
+    print(f"  爬取 {tab_name} ({tab_id})")
     print(f"{'='*60}")
 
-    # 点击标签页
-    if not click_tab(driver, tab_xpath, tab_name):
+    if not click_tab(driver, tab_id, tab_name):
         return []
 
-    # 设置每页显示条数
-    print(f"[*] 设置每页显示 {settings.PAGE_SIZE} 条...")
-    if not set_page_size(driver, settings.PAGE_SIZE):
+    set_page_size(driver, settings.PAGE_SIZE)
+    time.sleep(3)
+
+    first_page = get_current_page_data(driver)
+    if not first_page:
+        print(f"    {tab_name} 无数据")
         return []
 
-    # 等待数据加载
-    print("    等待数据加载...")
-    time.sleep(5)
+    info = get_page_info(driver)
+    total = (info or {}).get("total")
+    real_page_size = len(first_page)
 
-    # 获取数据（传递上一个标签页的首条ID，确保数据已更新）
-    print("[*] 获取活动数据...")
-    activities = get_current_page_data(driver, prev_first_id=prev_first_id)
+    if total is None:
+        print(f"    读不到 total, 信首页 {real_page_size} 条")
+        return _attach_status(first_page, tab_name)
 
-    if activities:
-        print(f"    成功获取 {len(activities)} 条活动数据")
-        return activities
+    print(f"    total={total}, 首页 {real_page_size} 条")
+
+    all_acts: List[Dict[str, Any]] = []
+    seen = set()
+
+    def add(rows: List[Dict[str, Any]]) -> int:
+        added = 0
+        for r in rows:
+            aid = r.get("actId")
+            if aid is None or aid in seen:
+                continue
+            seen.add(aid)
+            all_acts.append(r)
+            added += 1
+        return added
+
+    add(first_page)
+
+    if len(all_acts) >= total:
+        print(f"    首页已覆盖全部 {total} 条")
+        return _attach_status(all_acts, tab_name)
+
+    total_pages = (total + real_page_size - 1) // real_page_size if real_page_size else 1
+    print(f"    需翻页: 每页 {real_page_size} 条 × {total_pages} 页")
+
+    prev_first_id = first_page[0].get("actId")
+    for page_idx in range(2, total_pages + 1):
+        if stop_check and stop_check():
+            print(f"    收到停止信号,已抓 {len(all_acts)} 条")
+            break
+
+        result = go_to_next_page(driver)
+        if result != "ok":
+            print(f"    第 {page_idx} 页翻页结果: {result}, 终止")
+            break
+
+        rows = _wait_for_data_change(driver, prev_first_id, max_wait_sec=10)
+        if not rows:
+            print(f"    第 {page_idx} 页拿不到数据,终止")
+            break
+
+        added = add(rows)
+        print(f"    第 {page_idx}/{total_pages} 页新增 {added} (累计 {len(all_acts)}/{total})")
+        prev_first_id = rows[0].get("actId")
+
+        if len(all_acts) >= total:
+            break
+
+    if len(all_acts) < total:
+        print(f"    [WARN] {tab_name} 抓取不完整: {len(all_acts)}/{total}")
     else:
-        print("    未获取到数据")
-        return []
+        print(f"    完整抓取 {tab_name}: {len(all_acts)} 条")
+
+    return _attach_status(all_acts, tab_name)
 
 
-def crawl_all_tabs(driver, stop_check=None) -> Dict[str, List[Dict[str, Any]]]:
+def _attach_status(acts: List[Dict[str, Any]], status: str) -> List[Dict[str, Any]]:
+    """给每条活动盖上 finishStatus = 本 tab 状态。覆盖平台返回的 (可能为空的) finishStatus。"""
+    for a in acts:
+        a["finishStatus"] = status
+    return acts
+
+
+# ============ 入口 ============
+
+def crawl_all_tabs(
+    driver,
+    stop_check: Optional[Callable] = None,
+    tab_ids: Optional[List[str]] = None,
+) -> Dict[str, List[Dict[str, Any]]]:
     """
-    爬取所有标签页的活动
-
-    Args:
-        driver: WebDriver实例
-        stop_check: 停止检查回调函数，返回True表示应该停止
-
-    Returns:
-        字典，键为标签页名称，值为活动列表
+    按 tab 爬取所有状态的活动。
+    Returns: { 状态名: [活动dict, ...] }
     """
-    # 访问活动列表页面
-    print("\n[1] 访问活动列表页面...")
+    print("\n[1] 打开活动列表页...")
     driver.get(settings.KETANG_ACTIVITY_URL)
     time.sleep(3)
 
-    result = {}
-    prev_first_id = None  # 记录上一个标签页的首条数据ID
+    targets = ACTIVITY_TABS
+    if tab_ids:
+        targets = [t for t in ACTIVITY_TABS if t[0] in set(tab_ids)]
 
-    # 定义标签页配置（只爬取报名中和进行中）
-    tabs = [
-        {"xpath": '//*[@id="tab-4"]', "name": "报名中"},
-        {"xpath": '//*[@id="tab-6"]', "name": "进行中"}
-    ]
-
-    for tab in tabs:
-        # 检查停止信号
+    result: Dict[str, List[Dict[str, Any]]] = {}
+    for tab_id, tab_name in targets:
         if stop_check and stop_check():
-            print("\n[停止] 收到停止信号，中断爬取")
+            print("\n[停止] 收到停止信号")
             break
+        result[tab_name] = crawl_one_tab(driver, tab_id, tab_name, stop_check)
+        time.sleep(1.5)
 
-        activities = crawl_activities_by_tab(driver, tab["xpath"], tab["name"], prev_first_id=prev_first_id)
-        result[tab["name"]] = activities
-        # 记录当前标签页的首条ID，用于下一个标签页检测数据更新
-        if activities and len(activities) > 0:
-            prev_first_id = activities[0].get('actId')
-        time.sleep(2)  # 标签页切换间隔
-
+    # 汇总
+    print(f"\n{'='*60}")
+    total = 0
+    for name, acts in result.items():
+        print(f"  {name}: {len(acts)} 条")
+        total += len(acts)
+    print(f"  合计: {total} 条 (含跨 tab 去重前)")
+    print(f"{'='*60}")
     return result
 
 
-def crawl_activities(driver, tabs: List[str] = None, stop_check=None) -> List[Dict[str, Any]]:
+def crawl_activities(
+    driver,
+    tabs: Optional[List[str]] = None,
+    stop_check: Optional[Callable] = None,
+) -> List[Dict[str, Any]]:
     """
-    爬取指定标签页的活动（供脚本调用）
+    旧入口的兼容版本: 接受状态名列表 (报名中 / 进行中 / 已完结 / ...) 返回扁平列表。
 
-    Args:
-        driver: WebDriver实例
-        tabs: 要爬取的标签页名称列表，如 ["报名中", "进行中"]，默认爬取所有
-        stop_check: 停止检查回调函数，返回True表示应该停止
-
-    Returns:
-        活动列表
+    新代码请优先用 crawl_all_tabs。
     """
-    # 访问活动列表页面
-    print("\n[1] 访问活动列表页面...")
-    driver.get(settings.KETANG_ACTIVITY_URL)
-    time.sleep(3)
+    NAME_TO_ID = {name: tid for tid, name in ACTIVITY_TABS}
 
-    # 标签页配置映射
-    tab_config = {
-        "报名中": {"xpath": '//*[@id="tab-4"]', "name": "报名中"},
-        "进行中": {"xpath": '//*[@id="tab-6"]', "name": "进行中"},
-        "待审核": {"xpath": '//*[@id="tab-0"]', "name": "待审核"},
-        "已结束": {"xpath": '//*[@id="tab-8"]', "name": "已结束"}
-    }
-
-    # 如果没有指定标签页，默认爬取报名中和进行中
     if not tabs:
         tabs = ["报名中", "进行中"]
 
-    all_activities = []
-    prev_first_id = None
+    tab_ids = []
+    for name in tabs:
+        if name in NAME_TO_ID:
+            tab_ids.append(NAME_TO_ID[name])
+        else:
+            print(f"[警告] 未知 tab 名: {name}")
 
-    for tab_name in tabs:
-        # 检查停止信号
-        if stop_check and stop_check():
-            print("\n[停止] 收到停止信号，中断爬取")
-            break
+    grouped = crawl_all_tabs(driver, stop_check=stop_check, tab_ids=tab_ids)
 
-        if tab_name not in tab_config:
-            print(f"[警告] 未知的标签页: {tab_name}")
-            continue
-
-        tab = tab_config[tab_name]
-        activities = crawl_activities_by_tab(driver, tab["xpath"], tab["name"], prev_first_id=prev_first_id)
-
-        # 转换数据格式，添加 act_id 字段（兼容脚本使用）
-        for activity in activities:
-            activity['act_id'] = activity.get('actId')
-
-        all_activities.extend(activities)
-
-        # 记录当前标签页的首条ID
-        if activities and len(activities) > 0:
-            prev_first_id = activities[0].get('actId')
-        time.sleep(2)
-
-    return all_activities
+    flat: List[Dict[str, Any]] = []
+    for acts in grouped.values():
+        for a in acts:
+            a.setdefault("act_id", a.get("actId"))
+            flat.append(a)
+    return flat
 
 
 if __name__ == "__main__":
@@ -247,12 +349,9 @@ if __name__ == "__main__":
     if driver:
         try:
             result = crawl_all_tabs(driver)
-            print("\n" + "="*60)
-            print("爬取结果汇总:")
-            print("="*60)
-            for tab_name, activities in result.items():
-                print(f"{tab_name}: {len(activities)} 条活动")
+            print("\n汇总:")
+            for name, acts in result.items():
+                print(f"  {name}: {len(acts)} 条")
         finally:
-            print("\n等待3秒后关闭浏览器...")
-            time.sleep(3)
+            time.sleep(2)
             driver.quit()
