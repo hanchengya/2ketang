@@ -41,7 +41,7 @@ async def health_check():
 
 
 # 导入API路由
-from app.api import auth, students, activities, notifications, crawler, wechat
+from app.api import auth, students, activities, notifications, crawler, wechat, public
 
 app.include_router(auth.router, prefix="/api/auth", tags=["认证"])
 app.include_router(students.router, prefix="/api/students", tags=["学生管理"])
@@ -49,6 +49,7 @@ app.include_router(activities.router, prefix="/api/activities", tags=["活动管
 app.include_router(notifications.router, prefix="/api/notifications", tags=["通知管理"])
 app.include_router(crawler.router, prefix="/api/crawler", tags=["爬虫控制"])
 app.include_router(wechat.router, prefix="/api/wechat", tags=["微信小程序"])
+app.include_router(public.router, prefix="/api/public", tags=["公开 API (无认证)"])
 
 
 if __name__ == "__main__":
