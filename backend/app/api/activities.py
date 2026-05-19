@@ -53,6 +53,7 @@ class ActivityDetailInfo(BaseModel):
     job: Optional[int] = None
     qq_groups: Optional[str] = None
     finish_status: Optional[str] = None
+    detail_pending: bool = False  # True 表示主表有但详情未爬取
 
     class Config:
         from_attributes = True
@@ -148,16 +149,39 @@ def get_activity_detail(
         活动详情
     """
     detail = db.query(ActivityDetail).filter(ActivityDetail.act_id == act_id).first()
-    if not detail:
+    activity = db.query(Activity).filter(Activity.act_id == act_id).first()
+
+    # 活动主表都找不到才是真的不存在
+    if not activity and not detail:
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Activity not found")
 
-    # 从主活动表获取finish_status
-    activity = db.query(Activity).filter(Activity.act_id == act_id).first()
+    # 详情表没数据时,降级用主表字段拼一个 (detail_pending=True 让前端可以提示用户)
+    # 这通常是活动列表已爬但详情爬虫还没跑的情况
+    if not detail:
+        return {
+            'act_id': activity.act_id,
+            'act_name': activity.name,
+            'introduce': None,
+            'org_name': activity.org_name,
+            'class_name': activity.class_name,
+            'start_time': activity.start_time,
+            'end_time': activity.end_time,
+            'enroll_end_time': activity.enroll_end_time,
+            'pitch_address': None,
+            'college_name': None,
+            'grade_name': None,
+            'people_limit': None,
+            'hours': activity.hours,
+            'job': None,
+            'qq_groups': None,
+            'finish_status': activity.finish_status,
+            'detail_pending': True,
+        }
+
     finish_status = activity.finish_status if activity else None
-    
-    # 构建返回数据
-    result = {
+
+    return {
         'act_id': detail.act_id,
         'act_name': detail.act_name,
         'introduce': detail.introduce,
@@ -173,10 +197,9 @@ def get_activity_detail(
         'hours': detail.hours,
         'job': detail.job,
         'qq_groups': detail.qq_groups,
-        'finish_status': finish_status
+        'finish_status': finish_status,
+        'detail_pending': False,
     }
-    
-    return result
 
 
 @router.get("/stats/summary")

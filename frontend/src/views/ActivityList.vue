@@ -25,10 +25,16 @@
               clearable
               style="width: 150px"
             >
-              <el-option label="待审核" value="待审核" />
+              <!-- 平台实际 9 个状态 (顺序按学生关注度) -->
               <el-option label="报名中" value="报名中" />
+              <el-option label="待开始" value="待开始" />
               <el-option label="进行中" value="进行中" />
-              <el-option label="已结束" value="已结束" />
+              <el-option label="待完结" value="待完结" />
+              <el-option label="已完结" value="已完结" />
+              <el-option label="审核中" value="审核中" />
+              <el-option label="被驳回" value="被驳回" />
+              <el-option label="完结审核中" value="完结审核中" />
+              <el-option label="完结被驳回" value="完结被驳回" />
             </el-select>
           </el-form-item>
 
@@ -57,11 +63,9 @@
         <el-table-column prop="org_name" label="主办方" width="150" show-overflow-tooltip />
         <el-table-column prop="finish_status" label="状态" width="120">
           <template #default="{ row }">
-            <el-tag v-if="row.finish_status === '待审核'" type="warning">待审核</el-tag>
-            <el-tag v-else-if="row.finish_status === '报名中'" type="primary">报名中</el-tag>
-            <el-tag v-else-if="row.finish_status === '进行中'" type="success">进行中</el-tag>
-            <el-tag v-else-if="row.finish_status === '已结束'" type="info">已结束</el-tag>
-            <el-tag v-else type="info">{{ row.finish_status || '未知' }}</el-tag>
+            <el-tag :type="getStatusTagType(row.finish_status)">
+              {{ row.finish_status || '未知' }}
+            </el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="start_time" label="开始时间" width="180">
@@ -98,17 +102,24 @@
       width="800px"
       destroy-on-close
     >
+      <el-alert
+        v-if="currentActivity && currentActivity.detail_pending"
+        title="详情待补充"
+        description="该活动主表已收录,但详情信息（地点 / 简介 / 参与条件等）尚未爬取。请到爬虫控制页运行一次 “活动详情” 任务后再回来查看。"
+        type="warning"
+        :closable="false"
+        style="margin-bottom: 16px;"
+        show-icon
+      />
       <el-descriptions v-if="currentActivity" :column="2" border>
         <el-descriptions-item label="活动ID">{{ currentActivity.act_id }}</el-descriptions-item>
         <el-descriptions-item label="活动名称">{{ currentActivity.act_name }}</el-descriptions-item>
         <el-descriptions-item label="活动分类">{{ currentActivity.class_name }}</el-descriptions-item>
         <el-descriptions-item label="主办方">{{ currentActivity.org_name }}</el-descriptions-item>
         <el-descriptions-item label="活动状态">
-          <el-tag v-if="currentActivity.finish_status === '待审核'" type="warning">待审核</el-tag>
-          <el-tag v-else-if="currentActivity.finish_status === '报名中'" type="primary">报名中</el-tag>
-          <el-tag v-else-if="currentActivity.finish_status === '进行中'" type="success">进行中</el-tag>
-          <el-tag v-else-if="currentActivity.finish_status === '已结束'" type="info">已结束</el-tag>
-          <el-tag v-else type="info">{{ currentActivity.finish_status || '未知' }}</el-tag>
+          <el-tag :type="getStatusTagType(currentActivity.finish_status)">
+            {{ currentActivity.finish_status || '未知' }}
+          </el-tag>
         </el-descriptions-item>
         <el-descriptions-item label="活动场地">{{ currentActivity.pitch_address || '待定' }}</el-descriptions-item>
         <el-descriptions-item label="开始时间">{{ formatTime(currentActivity.start_time) }}</el-descriptions-item>
@@ -193,6 +204,20 @@ const pagination = reactive({
   page_size: 20,
   total: 0
 })
+
+// 平台 9 个状态 → el-tag 颜色
+const STATUS_TAG_TYPE = {
+  '审核中':     'warning',
+  '被驳回':     'danger',
+  '报名中':     'primary',
+  '待开始':     'primary',
+  '进行中':     'success',
+  '待完结':     'warning',
+  '完结审核中': 'warning',
+  '完结被驳回': 'danger',
+  '已完结':     'info'
+}
+const getStatusTagType = (status) => STATUS_TAG_TYPE[status] || 'info'
 
 // 格式化时间，去掉T并显示友好格式
 const formatTime = (time) => {

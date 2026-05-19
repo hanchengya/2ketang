@@ -277,10 +277,16 @@
           style="width: 120px;"
           @change="loadActivities"
         >
-          <el-option label="待审核" value="待审核" />
+          <!-- 平台实际 9 个状态 -->
           <el-option label="报名中" value="报名中" />
+          <el-option label="待开始" value="待开始" />
           <el-option label="进行中" value="进行中" />
-          <el-option label="已结束" value="已结束" />
+          <el-option label="待完结" value="待完结" />
+          <el-option label="已完结" value="已完结" />
+          <el-option label="审核中" value="审核中" />
+          <el-option label="被驳回" value="被驳回" />
+          <el-option label="完结审核中" value="完结审核中" />
+          <el-option label="完结被驳回" value="完结被驳回" />
         </el-select>
         <el-button type="primary" @click="loadActivities">搜索</el-button>
         <el-button @click="resetActivityFilter">重置</el-button>
@@ -1279,13 +1285,18 @@ const confirmActivitySelection = async () => {
   }
 }
 
-// 获取活动状态标签类型
+// 获取活动状态标签类型 (平台 9 状态)
 const getActivityTagType = (status) => {
   const typeMap = {
-    '待审核': 'warning',
-    '报名中': 'primary',
-    '进行中': 'success',
-    '已结束': 'info'
+    '审核中':     'warning',
+    '被驳回':     'danger',
+    '报名中':     'primary',
+    '待开始':     'primary',
+    '进行中':     'success',
+    '待完结':     'warning',
+    '完结审核中': 'warning',
+    '完结被驳回': 'danger',
+    '已完结':     'info'
   }
   return typeMap[status] || 'info'
 }
