@@ -112,30 +112,40 @@ ICP 备案绑定 47.108.86.137。域名 DNS 只能指向已备案 IP。
 微信公众平台 → 开发管理 → 开发设置 → 服务器域名 →
 request 合法域名加 `https://www.shuzhiweixin.top`。
 
-## web-view 跳学校第二课堂报名页 (现状 + 升级路径)
+## "报名活动" 跳学校平台 (个人主体硬限制 → 复制链接方案)
 
-### 现状: 复制链接 + 微信内打开 (兜底)
+小程序主体是**个人开发者**, 微信硬性限制:
 
-小程序 `pages/activity/detail` 点 "报名活动" → `wx.setClipboardData` 把
-`https://www.shuzhiweixin.top/enroll/<act_id>` 复制到剪贴板, 提示用户
-在微信"文件传输助手"等聊天里粘贴并点击。Caddy 已配置 `/enroll/{id}` 302
-跳到平台真实 URL, 跟随 302 后落到 `2ketang.svtcc.edu.cn` 报名页。
+> 个人主体小程序自 2017 年起不允许使用 `<web-view>` 组件, 公众平台后台
+> 不显示"业务域名"设置入口。
 
-为什么不用 `<web-view>`: 小程序未完成微信认证 (300 元/年, 单位主体审核),
-微信公众平台后台**直接不显示业务域名设置入口**, web-view 加载任何外部
-HTTPS 都会被微信拦截。
+这是 WeChat 平台规则, 跟微信认证 / 小程序备案是否完成无关。**永久限制**。
 
-### 升级路径: 完成微信认证后切回 web-view
+### 当前方案: 复制链接 + 微信内粘贴打开
 
-1. 完成微信认证, 公众平台 "开发管理 → 服务器域名" 下方会多出 "业务域名"
-2. 业务域名添加 `https://www.shuzhiweixin.top`, 下载 `MP_verify_xxx.txt`
-3. 把校验文件放到 Caddy 静态目录 `/var/www/wechat-verify/` (已存在)
-4. 微信后台点 "提交" 校验通过
-5. 小程序 `pages/activity/detail/detail.js` 的 `openEnrollment` 换回:
+`pages/activity/detail` 点 "报名活动" → `wx.setClipboardData` 把
+`https://www.shuzhiweixin.top/enroll/<act_id>` 复制到剪贴板 →
+`wx.showModal` 提示用户在微信"文件传输助手"粘贴并点击 → 微信识别为可点击
+链接 → 用内置浏览器打开 → 走 Caddy 302 跳到 `2ketang.svtcc.edu.cn` 报名页。
+
+体验上学生多 1-2 步, 但功能 100% 可用, 学生平台的登录 cookie 会保留
+(微信内置浏览器是有 cookie 持久化的)。
+
+### 想要"无感跳转"必须升级主体
+
+唯一办法: 让学校 (或学院) 作为主体重新注册一个小程序, 走"单位主体微信认证"
+(300 元/年, 需要单位营业执照 / 组织机构代码)。然后:
+
+1. 业务域名添加 `https://www.shuzhiweixin.top`, 下载 `MP_verify_xxx.txt`
+2. 校验文件放到 Caddy 静态目录 `/var/www/wechat-verify/` (已存在)
+3. 微信后台校验通过
+4. 小程序 `pages/activity/detail/detail.js` 的 `openEnrollment` 换回:
    ```js
    wx.navigateTo({ url: '/pages/webview/webview?url=' + encodeURIComponent(url) })
    ```
-   (`pages/webview/*` 容器页和 Caddy 重定向都已就位, 改一行即可)
+
+代码层面 `pages/webview/*` 容器页和 Caddy `/enroll/{id}` 302 都保留着, 升级
+主体后改一行就能切回。但不升级主体, 永远走"复制链接"方案。
 
 ## 开发约定
 
