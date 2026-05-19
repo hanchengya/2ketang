@@ -102,15 +102,6 @@
       width="800px"
       destroy-on-close
     >
-      <el-alert
-        v-if="currentActivity && currentActivity.detail_pending"
-        title="详情待补充"
-        description="该活动主表已收录,但详情信息（地点 / 简介 / 参与条件等）尚未爬取。请到爬虫控制页运行一次 “活动详情” 任务后再回来查看。"
-        type="warning"
-        :closable="false"
-        style="margin-bottom: 16px;"
-        show-icon
-      />
       <el-descriptions v-if="currentActivity" :column="2" border>
         <el-descriptions-item label="活动ID">{{ currentActivity.act_id }}</el-descriptions-item>
         <el-descriptions-item label="活动名称">{{ currentActivity.act_name }}</el-descriptions-item>
@@ -324,5 +315,16 @@ onMounted(() => {
   margin-top: 20px;
   display: flex;
   justify-content: flex-end;
+}
+
+/* 详情对话框: 防止 label 列被压成竖排 (el-descriptions 在某些环境
+   下会把宽 label 收得极窄, 导致 "活动 ID" 4 个字一字一行) */
+:deep(.el-descriptions__label) {
+  width: 110px;
+  min-width: 110px;
+  white-space: nowrap;
+}
+:deep(.el-descriptions__content) {
+  word-break: break-word;
 }
 </style>

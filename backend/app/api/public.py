@@ -92,14 +92,37 @@ def activity_stats(db: Session = Depends(get_db)) -> Any:
 
 @router.get("/activities/{act_id}")
 def activity_detail(act_id: int, db: Session = Depends(get_db)) -> Any:
-    """活动详情。"""
+    """活动详情。详情表无数据时降级用主表字段拼一个,不直接 404。"""
     detail = db.query(ActivityDetail).filter(ActivityDetail.act_id == act_id).first()
-    if not detail:
+    activity = db.query(Activity).filter(Activity.act_id == act_id).first()
+
+    if not activity and not detail:
         raise HTTPException(status_code=404, detail="活动不存在")
 
-    activity = db.query(Activity).filter(Activity.act_id == act_id).first()
-    finish_status = activity.finish_status if activity else None
+    # 详情未爬取: 主表字段拼一个简化版返回
+    if not detail:
+        return {
+            "act_id": activity.act_id,
+            "act_name": activity.name,
+            "introduce": "",
+            "org_name": activity.org_name,
+            "class_name": activity.class_name,
+            "type_name": None,
+            "start_time": _to_iso(activity.start_time),
+            "end_time": _to_iso(activity.end_time),
+            "enroll_end_time": _to_iso(activity.enroll_end_time),
+            "pitch_address": None,
+            "college_name": None,
+            "grade_name": None,
+            "people_limit": None,
+            "hours": float(activity.hours) if activity.hours else None,
+            "qq_groups": [],
+            "finish_status": activity.finish_status or "",
+            "job": None,
+            "detail_pending": True,
+        }
 
+    finish_status = activity.finish_status if activity else None
     qq_list = []
     if detail.qq_groups:
         qq_list = [s.strip() for s in str(detail.qq_groups).split(",") if s.strip()]
@@ -122,4 +145,5 @@ def activity_detail(act_id: int, db: Session = Depends(get_db)) -> Any:
         "qq_groups": qq_list,
         "finish_status": finish_status or "",
         "job": detail.job,
+        "detail_pending": False,
     }
