@@ -112,6 +112,33 @@ ICP 备案绑定 47.108.86.137。域名 DNS 只能指向已备案 IP。
 微信公众平台 → 开发管理 → 开发设置 → 服务器域名 →
 request 合法域名加 `https://www.shuzhiweixin.top`。
 
+## 上线前 TODO
+
+### web-view 跳学校第二课堂报名页
+
+小程序 `pages/activity/detail` 点 "报名活动" 走 `<web-view>` 加载
+`https://2ketang.svtcc.edu.cn/#/pages/acti/info?key=<act_id>&otokey=0&wycj=1`。
+
+学校域名 `2ketang.svtcc.edu.cn` 不在我们控制下,**学校 IT 不会配合**
+把微信 `MP_verify_xxx.txt` 放到那个域名根目录。所以正式上线前要做:
+
+1. **Caddy 加 302 重定向**:
+   ```caddyfile
+   @enroll path_regexp enroll ^/enroll/(\d+)$
+   redir @enroll https://2ketang.svtcc.edu.cn/#/pages/acti/info?key={re.enroll.1}&otokey=0&wycj=1 302
+   ```
+   并加 `/MP_verify_*.txt` 静态文件目录。
+
+2. **小程序 detail.js** `targetUrl` 改成
+   `https://www.shuzhiweixin.top/enroll/${id}`
+   (微信 web-view 只校验初始 src,跟随 302 不再校验)
+
+3. **微信公众平台 → 开发管理 → 服务器域名 → 业务域名** 添加
+   `https://www.shuzhiweixin.top`,下载 `MP_verify_xxx.txt` 放到
+   Caddy 静态目录,验证通过即可。
+
+dev 模式下 `urlCheck: false` 可直接绕过,**真机调试已验证 web-view 通**。
+
 ## 开发约定
 
 见 [CLAUDE.md](./CLAUDE.md)。开发进度记录在 [开发进度.md](./开发进度.md)。
