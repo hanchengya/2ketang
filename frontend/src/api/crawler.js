@@ -60,6 +60,16 @@ export function crawlParticipants(actIds) {
 }
 
 /**
+ * 一键综合爬取: 活动列表 → 待开始/进行中详情(含QQ群) → 同批参与者
+ */
+export function fullCrawl() {
+  return request({
+    url: '/crawler/full-crawl',
+    method: 'post'
+  })
+}
+
+/**
  * 停止任务
  */
 export function stopTask(taskId) {

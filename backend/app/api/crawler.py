@@ -303,6 +303,55 @@ def crawl_participants(
     )
 
 
+@router.post("/full-crawl", response_model=TaskStartResponse)
+def full_crawl(
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> Any:
+    """
+    一键综合爬取: 活动列表 → 待开始/进行中的详情(含 QQ 群) → 同批参与者。
+    复用任务管理(日志/停止/进度)。
+    """
+    task_id = task_manager.create_task(CrawlerTaskType.full, db)
+
+    def run_crawler():
+        from app.database import SessionLocal
+        db_session = SessionLocal()
+        crawler_service = CrawlerService(db_session, task_id)
+        try:
+            task_manager.update_status(
+                task_id, db_session, CrawlerTaskStatus.running,
+                "开始综合爬取(列表+待开始/进行中的详情+参与者)"
+            )
+
+            summary = crawler_service.full_crawl(active_statuses=["待开始", "进行中"])
+
+            if task_manager.should_stop(task_id):
+                task_manager.update_status(task_id, db_session, CrawlerTaskStatus.stopped, "任务已停止")
+            else:
+                task_manager.update_status(
+                    task_id, db_session, CrawlerTaskStatus.completed,
+                    f"综合爬取完成: 活动 {summary.get('activities', 0)} | "
+                    f"详情 {summary.get('details', 0)} | "
+                    f"参与者 {summary.get('participants', 0)} 人次"
+                )
+        except Exception as e:
+            task_manager.append_log(task_id, db_session, f"错误: {str(e)}")
+            task_manager.update_status(task_id, db_session, CrawlerTaskStatus.failed, f"任务失败: {str(e)}")
+        finally:
+            crawler_service.stop_driver()
+            db_session.close()
+
+    background_tasks.add_task(run_crawler)
+
+    return TaskStartResponse(
+        task_id=task_id,
+        status="started",
+        message="综合爬取任务已启动"
+    )
+
+
 @router.post("/stop/{task_id}")
 def stop_task(
     task_id: str,
@@ -522,6 +571,13 @@ def start_schedule(
                 elif request.crawler_type == "students":
                     result = crawler_service.crawl_students()
                     task_manager.update_status(task_id, db_session, CrawlerTaskStatus.completed, f"[定时] 完成，共 {len(result)} 个学生")
+                elif request.crawler_type == "full":
+                    summary = crawler_service.full_crawl(active_statuses=["待开始", "进行中"])
+                    task_manager.update_status(
+                        task_id, db_session, CrawlerTaskStatus.completed,
+                        f"[定时] 综合爬取完成: 活动 {summary.get('activities', 0)} | "
+                        f"详情 {summary.get('details', 0)} | 参与者 {summary.get('participants', 0)} 人次"
+                    )
                 else:
                     task_manager.update_status(task_id, db_session, CrawlerTaskStatus.failed, "不支持的爬虫类型")
             except Exception as e:

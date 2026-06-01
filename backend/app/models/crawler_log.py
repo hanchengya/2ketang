@@ -15,6 +15,7 @@ class CrawlerTaskType(str, Enum):
     details = "details"  # 活动详情
     students = "students"  # 学生信息
     participants = "participants"  # 参与者信息
+    full = "full"  # 综合爬取(列表+详情+参与者)
     # 自动化通知脚本类型
     script_new_activity = "script_new_activity"  # 新活动报名通知脚本
     script_sign_in = "script_sign_in"  # 签到通知脚本

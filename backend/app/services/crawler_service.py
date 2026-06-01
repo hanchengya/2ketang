@@ -180,6 +180,78 @@ class CrawlerService:
 
         return results
 
+    def full_crawl(self, active_statuses: List[str] = None) -> Dict[str, Any]:
+        """
+        综合爬取: 一次登录跑完整流程
+          1. 爬活动列表(全部状态 tab)
+          2. 对 active_statuses 的活动爬详情(含 QQ 群)
+          3. 对 active_statuses 的活动爬参与者
+
+        Args:
+            active_statuses: 第 2、3 步处理哪些状态的活动,默认 待开始 + 进行中
+
+        Returns:
+            汇总统计
+        """
+        if active_statuses is None:
+            active_statuses = ["待开始", "进行中"]
+        active_set = set(active_statuses)
+
+        if not self.driver:
+            if not self.start_driver():
+                return {}
+
+        def stop_check():
+            return bool(self.task_id) and task_manager.should_stop(self.task_id)
+
+        # ---------- 1. 活动列表 ----------
+        self._log("【1/3】爬取活动列表(全部状态)...")
+        self._update_status(CrawlerTaskStatus.running)
+        grouped = crawl_all_tabs(self.driver, stop_check=stop_check)
+        if self._check_stop():
+            return {}
+        self._save_activities_to_db(grouped)
+        total_acts = sum(len(v) for v in grouped.values())
+        self._log(f"活动列表完成,共 {total_acts} 个")
+
+        # 收集目标状态的活动 ID
+        active_ids = []
+        for status, acts in grouped.items():
+            if status in active_set:
+                for a in acts:
+                    aid = a.get("actId") or a.get("act_id")
+                    if aid:
+                        active_ids.append(aid)
+        active_ids = list(dict.fromkeys(active_ids))
+        self._log(f"目标活动({'/'.join(active_statuses)}): {len(active_ids)} 个")
+
+        details_count = 0
+        participants_count = 0
+
+        if active_ids and not self._check_stop():
+            # ---------- 2. 活动详情 ----------
+            self._log(f"【2/3】爬取 {len(active_ids)} 个活动详情(含 QQ 群)...")
+            details = self.crawl_activity_details_batch(active_ids)
+            details_count = len(details)
+
+        if active_ids and not self._check_stop():
+            # ---------- 3. 参与者 ----------
+            self._log(f"【3/3】爬取 {len(active_ids)} 个活动的参与者...")
+            results = self.crawl_participants_for_activities(active_ids)
+            participants_count = sum(len(r.get("participants", [])) for r in results)
+
+        summary = {
+            "activities": total_acts,
+            "active_ids": len(active_ids),
+            "details": details_count,
+            "participants": participants_count,
+        }
+        self._log(
+            f"综合爬取完成: 活动 {total_acts} | 目标 {len(active_ids)} | "
+            f"详情 {details_count} | 参与者 {participants_count} 人次"
+        )
+        return summary
+
     def crawl_students(self) -> List[Dict[str, Any]]:
         """
         爬取学生信息

@@ -384,13 +384,15 @@ import {
   Document,
   Search,
   Bell,
-  Clock
+  Clock,
+  MagicStick
 } from '@element-plus/icons-vue'
 import {
   crawlActivities,
   crawlDetails,
   crawlStudents,
   crawlParticipants,
+  fullCrawl,
   stopTask,
   getTasks,
   getTaskLogs,
@@ -402,6 +404,26 @@ import { getActivities } from '@/api/activity'
 
 // 爬虫配置
 const crawlers = reactive([
+  {
+    type: 'full',
+    name: '一键综合爬取',
+    description: '依次爬取: 活动列表 → 待开始/进行中的详情(识别QQ群) → 同批参与者',
+    icon: markRaw(MagicStick),
+    running: false,
+    starting: false,
+    status: 'idle',
+    task_id: null,
+    current_count: 0,
+    total_count: 0,
+    lastRun: null,
+    canSchedule: true,
+    scheduleEnabled: false,
+    scheduleRunning: false,
+    scheduleLoading: false,
+    intervalMinutes: 180,
+    intervalTime: '03:00:00',
+    remainingSeconds: 0
+  },
   {
     type: 'activities',
     name: '活动列表',
@@ -575,6 +597,9 @@ const startCrawler = async (crawler) => {
 
     let response
     switch (crawler.type) {
+      case 'full':
+        response = await fullCrawl()
+        break
       case 'activities':
         response = await crawlActivities()
         break
@@ -1304,6 +1329,7 @@ const getActivityTagType = (status) => {
 // 获取任务类型颜色
 const getTaskTypeColor = (type) => {
   const colorMap = {
+    full: 'success',
     activities: 'primary',
     details: 'info',
     students: '',
@@ -1318,6 +1344,7 @@ const getTaskTypeColor = (type) => {
 // 获取任务类型名称
 const getTaskTypeName = (type) => {
   const nameMap = {
+    full: '综合爬取',
     activities: '活动列表',
     details: '活动详情',
     students: '学生信息',
