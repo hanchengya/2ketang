@@ -6,9 +6,9 @@
 import sys
 import time
 
-import bcrypt
 from sqlalchemy import text
 
+from app.core.security import get_password_hash
 from app.database import Base, engine, SessionLocal
 from app.models import (  # noqa: F401
     Student, Activity, ActivityDetail,
@@ -40,7 +40,7 @@ def ensure_admin_user():
         if existing:
             print(f"[init_db] admin user exists (id={existing.id})", flush=True)
             return
-        pwd_hash = bcrypt.hashpw(b"admin123", bcrypt.gensalt()).decode("utf-8")
+        pwd_hash = get_password_hash("admin123")
         admin = User(username="admin", password_hash=pwd_hash,
                      email="admin@2ketang.local", role="admin", is_active=1)
         db.add(admin)

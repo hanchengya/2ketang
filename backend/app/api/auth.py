@@ -5,18 +5,14 @@
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
 from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import HTTPBearer
-from jose import jwt
-import bcrypt
 from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, get_current_user
-from app.config import settings
+from app.core.security import verify_password, create_access_token
 from app.models import User
 
 router = APIRouter()
@@ -43,24 +39,6 @@ class UserInfo(BaseModel):
     email: Optional[str]
     role: str
     is_active: bool
-
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """验证密码"""
-    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
-
-
-def create_access_token(data: dict) -> str:
-    """创建访问令牌"""
-    to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(
-        to_encode,
-        settings.SECRET_KEY,
-        algorithm=settings.ALGORITHM
-    )
-    return encoded_jwt
 
 
 @router.post("/login", response_model=LoginResponse)

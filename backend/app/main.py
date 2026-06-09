@@ -6,6 +6,10 @@ FastAPI主应用
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
+from app.core.logging import setup_logging
+
+# 统一日志(替代散落的 print),需在其它模块产生日志前配置
+setup_logging()
 
 # 创建FastAPI应用
 app = FastAPI(

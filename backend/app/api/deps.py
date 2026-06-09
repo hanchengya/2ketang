@@ -6,12 +6,12 @@ API依赖项
 from typing import Generator
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import JWTError, jwt
+from jose import JWTError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
-from app.config import settings
+from app.core.security import decode_token
 from app.models import User
 
 security = HTTPBearer()
@@ -51,11 +51,7 @@ def get_current_user(
 
     try:
         token = credentials.credentials
-        payload = jwt.decode(
-            token,
-            settings.SECRET_KEY,
-            algorithms=[settings.ALGORITHM]
-        )
+        payload = decode_token(token)
         username: str = payload.get("sub")
         if username is None:
             raise credentials_exception
