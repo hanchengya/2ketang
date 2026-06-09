@@ -20,6 +20,10 @@ logs/
 tmp/
 node_modules/
 
+# 归档目录(不进镜像)
+_legacy/
+tests/
+
 # 测试用脚本(在容器里不需要)
 test_*.py
 check_*.py
