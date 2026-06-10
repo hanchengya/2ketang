@@ -64,10 +64,14 @@ def _page(act_id: Any) -> str:
 # ============ 各场景 data 组装 ============
 
 def _data_activity(activity: Dict[str, Any], thing5_text: str) -> Dict[str, Dict[str, str]]:
-    """模板 A 活动参与通知: thing1 活动名/time2 时间/thing4 地址/thing5 活动对象"""
+    """模板 A 活动参与通知: thing1 活动名/time2 发起时间/thing4 地址/thing5 活动对象
+
+    time2 用"通知发起的当前时间"(而非活动开始时间),签到/签退/报名成功
+    都体现"刚刚提醒你"的即时感。容器时区 Asia/Shanghai,now() 即北京时间。
+    """
     return {
         "thing1": {"value": _thing(activity.get("name") or activity.get("act_name"))},
-        "time2": {"value": _time(activity.get("start_time"))},
+        "time2": {"value": _time(datetime.now())},
         "thing4": {"value": _thing(activity.get("pitch_address") or "见活动详情")},
         "thing5": {"value": _thing(thing5_text)},
     }
