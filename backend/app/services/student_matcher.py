@@ -53,6 +53,19 @@ def parse_grades(grade_name: str) -> List[str]:
     return grades
 
 
+def student_matches(student: "Student", college_name: str, grade_name: str) -> bool:
+    """判断单个学生是否符合活动的院系/年级限制。
+
+    用于"可报名通知": 只需遍历少量已绑定学生,逐个判断是否符合活动条件,
+    比 match_students 拉全表(可能几千人)高效。"不限"或限制为空 → 视为符合。
+    """
+    colleges = parse_colleges(college_name)
+    grades = parse_grades(grade_name)
+    college_ok = (not colleges) or ("不限" in colleges) or (student.college_name in colleges)
+    grade_ok = (not grades) or ("不限" in grades) or (student.grade_name in grades)
+    return college_ok and grade_ok
+
+
 def match_students(
     db: Session,
     college_name: str = None,
