@@ -64,6 +64,16 @@ class Settings(BaseSettings):
     WECHAT_APPID: str = "wx3332c07f6d4cf60a"  # 小程序 AppID(公开值)
     WECHAT_SECRET: str = ""  # 小程序 AppSecret,从 .env 注入
     WECHAT_MINIPROGRAM_STATE: str = "developer"  # developer / trial / formal
+
+    # 订阅消息模板(template_id,公开值,可留默认)
+    # A 活动参与通知: thing1 活动名/time2 时间/thing4 地址/thing5 活动对象
+    #   → 报名成功 / 请签到 / 请签退(靠 thing5 区分)
+    WECHAT_TMPL_ACTIVITY: str = "uH5KwbIubW0QmpFdS2QCQwjmRhaljivu7C_3zGL1LKw"
+    # B 审核通过通知: thing15 任务名/thing5 备注/phrase1 审核结果 → 管理员/老师
+    WECHAT_TMPL_REVIEW: str = "jxH94kFO-hzvfF7R58_z5GYrXKS-yKLcSeNAFETXIMA"
+    # C 报名时间提醒: thing9 活动名/time6 开始/time7 截止/thing3 温馨提示 → 可报名
+    WECHAT_TMPL_ENROLL: str = "FpCTZJMYpLFmxMWFizluEv0qF3ymoaFgdoVeobTksJQ"
+    # (旧)签到提醒,已被 A 模板取代,保留兼容
     WECHAT_TMPL_SIGN_IN: str = "W4OsGLrQL8YcBFsdTtaYDLdfE4gkqkT0Q1jZdpNuUs4"
 
     # CORS配置
