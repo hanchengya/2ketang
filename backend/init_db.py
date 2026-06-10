@@ -13,7 +13,7 @@ from app.database import Base, engine, SessionLocal
 from app.models import (  # noqa: F401
     Student, Activity, ActivityDetail,
     ActivityNotification, ActivityParticipant, EmailLog,
-    User, CrawlerLog,
+    User, CrawlerLog, WxBinding, SubscribeQuota,
 )
 
 

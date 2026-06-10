@@ -14,6 +14,7 @@ from app.models.notification import (
 )
 from app.models.user import User, UserRole
 from app.models.crawler_log import CrawlerLog, CrawlerTaskType, CrawlerTaskStatus
+from app.models.binding import WxBinding, SubscribeQuota
 
 __all__ = [
     "Student",
@@ -28,5 +29,7 @@ __all__ = [
     "UserRole",
     "CrawlerLog",
     "CrawlerTaskType",
-    "CrawlerTaskStatus"
+    "CrawlerTaskStatus",
+    "WxBinding",
+    "SubscribeQuota"
 ]

@@ -6,11 +6,13 @@
 """
 from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.models import Activity, ActivityDetail
+from app.repositories import binding_repo
 
 router = APIRouter()
 
@@ -147,3 +149,76 @@ def activity_detail(act_id: int, db: Session = Depends(get_db)) -> Any:
         "job": detail.job,
         "detail_pending": False,
     }
+
+
+# ============ 微信绑定 / 订阅额度 ============
+
+class BindRequest(BaseModel):
+    openid: str
+    role: str = "student"   # student(本人学号) / admin(管理员账号)
+    code: str               # 学号 / 工号
+    name: str
+
+
+@router.post("/bind")
+def bind(req: BindRequest, db: Session = Depends(get_db)) -> Any:
+    """绑定学号/管理员账号。
+
+    - student: 严格校验 学号+姓名 与 students 表匹配
+    - admin:   老师验证系统尚未就绪(需求注明"后面额外设计"),本期暂不强校验,仅记录
+    """
+    if req.role not in ("student", "admin"):
+        raise HTTPException(status_code=400, detail="role 只能是 student 或 admin")
+    if not req.openid:
+        raise HTTPException(status_code=400, detail="缺少 openid")
+
+    code = (req.code or "").strip()
+    name = (req.name or "").strip()
+    if not code or not name:
+        raise HTTPException(status_code=400, detail="学号和姓名不能为空")
+
+    if req.role == "student":
+        if not binding_repo.verify_student(db, code, name):
+            raise HTTPException(status_code=400, detail="学号与姓名不匹配,请核对后重试")
+    # TODO(老师验证系统): admin 角色目前不强校验,等老师/工号数据源就绪后补上
+
+    b = binding_repo.upsert_binding(db, req.openid, req.role, code, name)
+    return {"ok": True, "role": b.role, "code": b.code, "name": b.name}
+
+
+class UnbindRequest(BaseModel):
+    openid: str
+    role: str = "student"
+
+
+@router.post("/unbind")
+def unbind(req: UnbindRequest, db: Session = Depends(get_db)) -> Any:
+    """解绑指定角色。"""
+    ok = binding_repo.remove_binding(db, req.openid, req.role)
+    return {"ok": ok}
+
+
+@router.get("/binding")
+def get_binding(openid: str = Query(...), db: Session = Depends(get_db)) -> Any:
+    """查某 openid 的绑定状态(student / admin 各最多一条)。"""
+    rows = binding_repo.get_bindings(db, openid)
+    return {
+        "bindings": [
+            {"role": r.role, "code": r.code, "name": r.name} for r in rows
+        ]
+    }
+
+
+class SubscribeRequest(BaseModel):
+    openid: str
+    template_id: str
+    count: int = 1
+
+
+@router.post("/subscribe")
+def subscribe(req: SubscribeRequest, db: Session = Depends(get_db)) -> Any:
+    """小程序 requestSubscribeMessage 授权成功后回调,额度 +count。"""
+    if not req.openid or not req.template_id:
+        raise HTTPException(status_code=400, detail="缺少 openid 或 template_id")
+    remaining = binding_repo.add_quota(db, req.openid, req.template_id, max(1, req.count))
+    return {"ok": True, "remaining": remaining}
