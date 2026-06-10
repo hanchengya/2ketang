@@ -71,9 +71,11 @@ def _send_one(db: Session, act: Activity, records: List[Dict], scene: str) -> Di
         code = str(r.get("code") or "").strip()
         if not code:
             continue
-        identity = r.get("identity")
+        # 师生判断用 role(两个接口都有此字段;签到名单 member/info/all 没有 identity)
+        #   role==1 组织/老师(4位短工号), role 2/3 学生(8位学号)
+        is_teacher = r.get("role") == 1
 
-        if identity == 2:
+        if is_teacher:
             # 老师 / 组织账号 → 绑定 admin 的人,模板 B
             for oid in binding_repo.openids_by_code(db, code, "admin"):
                 recipient += 1
@@ -81,7 +83,7 @@ def _send_one(db: Session, act: Activity, records: List[Dict], scene: str) -> Di
                 success += 1 if res.get("errcode") == 0 else 0
                 fail += 0 if res.get("errcode") == 0 else 1
         else:
-            # 学生(identity==1 或其它)→ 绑定 student 的人,模板 A
+            # 学生 → 绑定 student 的人,模板 A
             for oid in binding_repo.openids_by_code(db, code, "student"):
                 recipient += 1
                 res = wechat_notify.notify(oid, scene, payload)
