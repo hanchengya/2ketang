@@ -405,6 +405,59 @@ def notify_sign(
     return TaskStartResponse(task_id=task_id, status="started", message="签到/签退通知任务已启动")
 
 
+@router.post("/notify-enrolled", response_model=TaskStartResponse)
+def notify_enrolled(
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> Any:
+    """手动触发: 给待开始活动的报名者发"报名成功"通知(每活动只发一次)。"""
+    task_id = task_manager.create_task(CrawlerTaskType.script_new_activity, db)
+
+    def run():
+        from app.database import SessionLocal
+        from app.crawlers.login import login
+        from app.services.enrolled_notify_service import run_enrolled_notify
+        db_session = SessionLocal()
+        driver = None
+        try:
+            task_manager.update_status(task_id, db_session, CrawlerTaskStatus.running, "登录并检查待开始活动报名...")
+            driver = login()
+            if not driver:
+                task_manager.update_status(task_id, db_session, CrawlerTaskStatus.failed, "登录失败")
+                return
+
+            def stop_check():
+                return task_manager.should_stop(task_id)
+
+            summary = run_enrolled_notify(
+                db_session, driver,
+                stop_check=stop_check,
+                log_fn=lambda m: task_manager.append_log(task_id, db_session, m),
+            )
+            if task_manager.should_stop(task_id):
+                task_manager.update_status(task_id, db_session, CrawlerTaskStatus.stopped, "任务已停止")
+            else:
+                task_manager.update_status(
+                    task_id, db_session, CrawlerTaskStatus.completed,
+                    f"完成: 报名成功通知 {summary['sent']} 活动, "
+                    f"消息成功 {summary['msg_success']} 失败 {summary['msg_fail']}"
+                )
+        except Exception as e:
+            task_manager.append_log(task_id, db_session, f"错误: {str(e)}")
+            task_manager.update_status(task_id, db_session, CrawlerTaskStatus.failed, f"任务失败: {str(e)}")
+        finally:
+            if driver:
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
+            db_session.close()
+
+    background_tasks.add_task(run)
+    return TaskStartResponse(task_id=task_id, status="started", message="报名成功通知任务已启动")
+
+
 @router.post("/stop/{task_id}")
 def stop_task(
     task_id: str,

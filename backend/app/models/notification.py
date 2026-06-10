@@ -11,9 +11,10 @@ import enum
 
 class NotificationType(str, enum.Enum):
     """通知类型枚举"""
-    NEW_ACTIVITY = "new_activity"
-    SIGN_IN = "sign_in"
-    SIGN_OUT = "sign_out"
+    NEW_ACTIVITY = "new_activity"   # 可报名通知
+    ENROLLED = "enrolled"           # 报名成功通知
+    SIGN_IN = "sign_in"             # 签到通知
+    SIGN_OUT = "sign_out"           # 签退通知
 
 
 class EmailStatus(str, enum.Enum):

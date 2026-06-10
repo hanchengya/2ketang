@@ -23,74 +23,10 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.core.logging import get_logger
 from app.crawlers.activity_api import fetch_sign_records
-from app.models import Activity, ActivityDetail, ActivityNotification
-from app.repositories import binding_repo
-from app.services import wechat_notify
+from app.models import Activity
+from app.services import notify_common
 
 log = get_logger(__name__)
-
-
-def _already_sent(db: Session, act_id: int, ntype: str) -> bool:
-    return db.query(ActivityNotification).filter(
-        ActivityNotification.act_id == act_id,
-        ActivityNotification.notification_type == ntype,
-    ).first() is not None
-
-
-def _mark_sent(db: Session, act_id: int, ntype: str, recipient: int, success: int, fail: int) -> None:
-    db.add(ActivityNotification(
-        act_id=act_id,
-        notification_type=ntype,
-        sent_at=datetime.now(),
-        recipient_count=recipient,
-        success_count=success,
-        fail_count=fail,
-    ))
-    db.commit()
-
-
-def _activity_payload(db: Session, act: Activity) -> Dict[str, Any]:
-    """组装给 wechat_notify 的活动 dict(name/start_time/pitch_address...)。"""
-    detail = db.query(ActivityDetail).filter(ActivityDetail.act_id == act.act_id).first()
-    return {
-        "name": act.name,
-        "act_id": act.act_id,
-        "start_time": act.start_time,
-        "enroll_end_time": act.enroll_end_time,
-        "pitch_address": detail.pitch_address if detail else None,
-    }
-
-
-def _send_one(db: Session, act: Activity, records: List[Dict], scene: str) -> Dict[str, int]:
-    """给一个活动的全体报名者发 scene 通知。返回 {recipient, success, fail}。"""
-    payload = _activity_payload(db, act)
-    recipient = success = fail = 0
-    admin_result = "待签到" if scene == "sign_in" else "待签退"
-
-    for r in records:
-        code = str(r.get("code") or "").strip()
-        if not code:
-            continue
-        # 师生判断用 role(两个接口都有此字段;签到名单 member/info/all 没有 identity)
-        #   role==1 组织/老师(4位短工号), role 2/3 学生(8位学号)
-        is_teacher = r.get("role") == 1
-
-        if is_teacher:
-            # 老师 / 组织账号 → 绑定 admin 的人,模板 B
-            for oid in binding_repo.openids_by_code(db, code, "admin"):
-                recipient += 1
-                res = wechat_notify.notify_admin(oid, payload, admin_result, note="请关注活动签到")
-                success += 1 if res.get("errcode") == 0 else 0
-                fail += 0 if res.get("errcode") == 0 else 1
-        else:
-            # 学生 → 绑定 student 的人,模板 A
-            for oid in binding_repo.openids_by_code(db, code, "student"):
-                recipient += 1
-                res = wechat_notify.notify(oid, scene, payload)
-                success += 1 if res.get("errcode") == 0 else 0
-                fail += 0 if res.get("errcode") == 0 else 1
-
-    return {"recipient": recipient, "success": success, "fail": fail}
 
 
 def run_sign_notify(
@@ -137,18 +73,18 @@ def run_sign_notify(
         signout_n = sum(1 for r in records if r.get("singOut") == 1)
 
         # 签到
-        if signin_n >= th and not _already_sent(db, act.act_id, "sign_in"):
-            res = _send_one(db, act, records, "sign_in")
-            _mark_sent(db, act.act_id, "sign_in", res["recipient"], res["success"], res["fail"])
+        if signin_n >= th and not notify_common.already_sent(db, act.act_id, "sign_in"):
+            res = notify_common.send_to_members(db, act, records, "sign_in", admin_result="待签到", admin_note="请关注活动签到")
+            notify_common.mark_sent(db, act.act_id, "sign_in", res["recipient"], res["success"], res["fail"])
             summary["sign_in_sent"] += 1
             summary["msg_success"] += res["success"]
             summary["msg_fail"] += res["fail"]
             log_fn(f"[{act.act_id}] 签到通知: 已签到 {signin_n} 人 → 触达 {res['recipient']} (成功 {res['success']})")
 
         # 签退
-        if signout_n >= th and not _already_sent(db, act.act_id, "sign_out"):
-            res = _send_one(db, act, records, "sign_out")
-            _mark_sent(db, act.act_id, "sign_out", res["recipient"], res["success"], res["fail"])
+        if signout_n >= th and not notify_common.already_sent(db, act.act_id, "sign_out"):
+            res = notify_common.send_to_members(db, act, records, "sign_out", admin_result="待签退", admin_note="请关注活动签退")
+            notify_common.mark_sent(db, act.act_id, "sign_out", res["recipient"], res["success"], res["fail"])
             summary["sign_out_sent"] += 1
             summary["msg_success"] += res["success"]
             summary["msg_fail"] += res["fail"]
