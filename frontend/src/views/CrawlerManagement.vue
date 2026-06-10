@@ -514,10 +514,29 @@ const scriptLoading = reactive({
 // 脚本配置
 const scripts = reactive([
   {
-    type: 'script_new_activity',
-    apiEndpoint: 'new-activity',
-    name: '新活动报名通知',
-    description: '爬取报名中活动，匹配系部年级发送通知',
+    type: 'notify_enrollable',
+    apiEndpoint: 'notify-enrollable',
+    name: '可报名通知',
+    description: '报名中活动 → 通知有权限的已绑定学生(模板C)',
+    icon: markRaw(Bell),
+    buttonType: 'primary',
+    running: false,
+    starting: false,
+    status: 'idle',
+    task_id: null,
+    lastRun: null,
+    scheduleEnabled: false,
+    scheduleRunning: false,
+    scheduleLoading: false,
+    intervalMinutes: 60,
+    intervalTime: '01:00:00',
+    remainingSeconds: 0
+  },
+  {
+    type: 'notify_enrolled',
+    apiEndpoint: 'notify-enrolled',
+    name: '报名成功通知',
+    description: '待开始活动 → 通知报名者(模板A)',
     icon: markRaw(Bell),
     buttonType: 'primary',
     running: false,
@@ -533,31 +552,12 @@ const scripts = reactive([
     remainingSeconds: 0
   },
   {
-    type: 'script_sign_in',
-    apiEndpoint: 'sign-in',
-    name: '签到通知',
-    description: '检测进行中活动的签到时间，发送签到通知',
+    type: 'notify_sign',
+    apiEndpoint: 'notify-sign',
+    name: '签到/签退通知',
+    description: '进行中活动 → 达阈值通知报名者签到/签退(模板A)',
     icon: markRaw(Clock),
     buttonType: 'success',
-    running: false,
-    starting: false,
-    status: 'idle',
-    task_id: null,
-    lastRun: null,
-    scheduleEnabled: false,
-    scheduleRunning: false,
-    scheduleLoading: false,
-    intervalMinutes: 15,
-    intervalTime: '00:15:00',
-    remainingSeconds: 0
-  },
-  {
-    type: 'script_sign_out',
-    apiEndpoint: 'sign-out',
-    name: '签退通知',
-    description: '检测进行中活动的签退时间，发送签退通知',
-    icon: markRaw(Clock),
-    buttonType: 'warning',
     running: false,
     starting: false,
     status: 'idle',
@@ -925,7 +925,7 @@ const startScript = async (script) => {
   try {
     script.starting = true
 
-    const response = await fetch(`/api/crawler/scripts/${script.apiEndpoint}-notify`, {
+    const response = await fetch(`/api/crawler/${script.apiEndpoint}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -939,11 +939,11 @@ const startScript = async (script) => {
         script.running = true
         script.task_id = result.task_id
         script.status = 'running'
-        ElMessage.success(result.message || '脚本已启动')
+        ElMessage.success(result.message || '通知任务已启动')
         startPolling()
       }
     } else {
-      ElMessage.error('启动脚本失败')
+      ElMessage.error('启动通知任务失败')
     }
   } catch (error) {
     console.error('启动脚本失败:', error)
@@ -1334,6 +1334,9 @@ const getTaskTypeColor = (type) => {
     details: 'info',
     students: '',
     participants: 'warning',
+    notify_enrollable: 'primary',
+    notify_enrolled: 'primary',
+    notify_sign: 'success',
     script_new_activity: 'success',
     script_sign_in: 'primary',
     script_sign_out: 'danger'
@@ -1349,6 +1352,9 @@ const getTaskTypeName = (type) => {
     details: '活动详情',
     students: '学生信息',
     participants: '参与者信息',
+    notify_enrollable: '可报名通知',
+    notify_enrolled: '报名成功通知',
+    notify_sign: '签到/签退通知',
     script_new_activity: '新活动通知',
     script_sign_in: '签到通知',
     script_sign_out: '签退通知'
