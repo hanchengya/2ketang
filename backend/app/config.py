@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     EMAIL_DELAY: int = 1  # 邮件发送延迟（秒）
     PAGE_SIZE: int = 2000  # 活动列表每页条数
     PARTICIPANT_PAGE_SIZE: int = 2000  # 参与者列表每页条数
+    SIGN_NOTIFY_THRESHOLD: int = 2  # 签到/签退通知触发阈值(已签到/签退人数 ≥ 此值才发)
 
     # JWT配置
     SECRET_KEY: str  # 必填,从环境变量 / .env 注入(JWT 签名密钥)
