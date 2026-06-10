@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.models.crawler_log import CrawlerTaskStatus
 from app.crawlers.login import login
-from app.crawlers.activity_crawler import crawl_all_tabs
+from app.crawlers.activity_crawler import crawl_all_tabs  # selenium 版,保留作 fallback
+from app.crawlers import activity_api
 from app.crawlers.detail_crawler import crawl_activity_detail, crawl_activity_details
 from app.crawlers.participant_crawler import crawl_activity_participants, crawl_participants_batch
 from app.crawlers.student_crawler import crawl_students
@@ -75,7 +76,8 @@ class CrawlerService:
                 return task_manager.should_stop(self.task_id)
             return False
 
-        activities = crawl_all_tabs(self.driver, stop_check=stop_check)
+        # 活动列表走源站 API(秒级,替代 selenium 翻页)
+        activities = activity_api.crawl_all_activities_api(self.driver, stop_check=stop_check)
 
         # 检查停止信号
         if self._check_stop():
@@ -203,9 +205,9 @@ class CrawlerService:
             return bool(self.task_id) and task_manager.should_stop(self.task_id)
 
         # ---------- 1. 活动列表 ----------
-        self._log("【1/3】爬取活动列表(全部状态)...")
+        self._log("【1/3】爬取活动列表(全部状态, API 提速)...")
         self._update_status(CrawlerTaskStatus.running)
-        grouped = crawl_all_tabs(self.driver, stop_check=stop_check)
+        grouped = activity_api.crawl_all_activities_api(self.driver, stop_check=stop_check)
         if self._check_stop():
             return {}
         self._save_activities_to_db(grouped)

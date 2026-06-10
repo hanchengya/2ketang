@@ -88,11 +88,16 @@ def fetch_all_activities(driver, list_type: int, page_size: int = 200, max_pages
     return out
 
 
-def crawl_all_activities_api(driver, list_types=None) -> Dict[str, List[Dict]]:
-    """全状态全量爬取,返回 {状态名: [活动dict]},格式兼容 activity_repo.save_activities。"""
+def crawl_all_activities_api(driver, list_types=None, stop_check=None) -> Dict[str, List[Dict]]:
+    """全状态全量爬取,返回 {状态名: [活动dict]},格式兼容 activity_repo.save_activities。
+
+    stop_check(): 可选,返回 True 则提前停止(在每个状态前检查)。
+    """
     targets = list_types if list_types is not None else list(LIST_TYPE_STATUS.keys())
     result: Dict[str, List[Dict]] = {}
     for lt in targets:
+        if stop_check and stop_check():
+            break
         name = LIST_TYPE_STATUS.get(lt, str(lt))
         acts = fetch_all_activities(driver, lt)
         result[name] = acts
