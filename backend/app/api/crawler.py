@@ -737,8 +737,28 @@ def start_schedule(
                         f"[定时] 综合爬取完成: 活动 {summary.get('activities', 0)} | "
                         f"详情 {summary.get('details', 0)} | 参与者 {summary.get('participants', 0)} 人次"
                     )
+                elif request.crawler_type in ("notify_sign", "notify_enrolled", "notify_enrollable"):
+                    # 通知类: 需要登录态 driver(复用 CrawlerService 的登录)
+                    if not crawler_service.start_driver():
+                        task_manager.update_status(task_id, db_session, CrawlerTaskStatus.failed, "[定时] 登录失败")
+                        return
+                    driver = crawler_service.driver
+                    _log = lambda m: task_manager.append_log(task_id, db_session, m)
+                    if request.crawler_type == "notify_sign":
+                        from app.services.signin_notify_service import run_sign_notify
+                        s = run_sign_notify(db_session, driver, log_fn=_log)
+                        msg = f"[定时] 签到{s['sign_in_sent']}/签退{s['sign_out_sent']}, 消息成功{s['msg_success']}"
+                    elif request.crawler_type == "notify_enrolled":
+                        from app.services.enrolled_notify_service import run_enrolled_notify
+                        s = run_enrolled_notify(db_session, driver, log_fn=_log)
+                        msg = f"[定时] 报名成功通知{s['sent']}活动, 消息成功{s['msg_success']}"
+                    else:  # notify_enrollable
+                        from app.services.enrollable_notify_service import run_enrollable_notify
+                        s = run_enrollable_notify(db_session, driver, log_fn=_log)
+                        msg = f"[定时] 可报名通知{s['sent']}活动, 消息成功{s['msg_success']}"
+                    task_manager.update_status(task_id, db_session, CrawlerTaskStatus.completed, msg)
                 else:
-                    task_manager.update_status(task_id, db_session, CrawlerTaskStatus.failed, "不支持的爬虫类型")
+                    task_manager.update_status(task_id, db_session, CrawlerTaskStatus.failed, "不支持的类型")
             except Exception as e:
                 task_manager.append_log(task_id, db_session, f"[定时] 错误: {str(e)}")
                 task_manager.update_status(task_id, db_session, CrawlerTaskStatus.failed, f"[定时] 失败: {str(e)}")
