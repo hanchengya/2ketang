@@ -167,14 +167,14 @@ def crawl_details(
             task_manager.update_status(task_id, db_session, CrawlerTaskStatus.running,
                                       f"开始爬取 {len(request.act_ids)} 个活动的详情")
 
-            details = crawler_service.crawl_activity_details_batch(request.act_ids)
+            saved = crawler_service.crawl_activity_details_batch(request.act_ids)
 
             if task_manager.should_stop(task_id):
                 task_manager.update_status(task_id, db_session, CrawlerTaskStatus.stopped, "任务已停止")
             else:
                 task_manager.update_status(
                     task_id, db_session, CrawlerTaskStatus.completed,
-                    f"活动详情爬取完成，共 {len(details)} 个"
+                    f"活动详情爬取完成，共 {saved} 个"
                 )
         except Exception as e:
             task_manager.append_log(task_id, db_session, f"错误: {str(e)}")
@@ -215,13 +215,13 @@ def sync_details(
         try:
             scope = "/".join(request.statuses) if request.statuses else "全部活动"
             task_manager.update_status(task_id, db_session, CrawlerTaskStatus.running, f"开始全量同步详情({scope})")
-            details = crawler_service.crawl_all_activity_details(request.statuses)
+            saved = crawler_service.crawl_all_activity_details(request.statuses)
             if task_manager.should_stop(task_id):
                 task_manager.update_status(task_id, db_session, CrawlerTaskStatus.stopped, "任务已停止")
             else:
                 task_manager.update_status(
                     task_id, db_session, CrawlerTaskStatus.completed,
-                    f"全量详情同步完成，共 {len(details)} 个"
+                    f"全量详情同步完成，共 {saved} 个"
                 )
         except Exception as e:
             task_manager.append_log(task_id, db_session, f"错误: {str(e)}")

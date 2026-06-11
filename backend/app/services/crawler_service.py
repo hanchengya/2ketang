@@ -93,53 +93,62 @@ class CrawlerService:
 
     def crawl_activity_details_batch(
         self,
-        act_ids: List[int]
-    ) -> List[Dict[str, Any]]:
+        act_ids: List[int],
+        batch_size: int = 200,
+    ) -> int:
         """
-        批量爬取活动详情
+        批量爬取活动详情(API),分批入库(每 batch_size 个 commit 一次)。
+        中途停止/异常时,已入库的批次保留,不会全丢。
 
         Args:
             act_ids: 活动ID列表
+            batch_size: 每多少个详情入库一次
 
         Returns:
-            活动详情列表
+            成功保存的详情数
         """
         if not self.driver:
             if not self.start_driver():
-                return []
+                return 0
 
-        self._log(f"开始爬取 {len(act_ids)} 个活动的详情...")
+        total = len(act_ids)
+        self._log(f"开始爬取 {total} 个活动的详情(分批入库,每 {batch_size} 个)...")
         self._update_status(CrawlerTaskStatus.running)
-        self._update_progress(0, len(act_ids))
+        self._update_progress(0, total)
 
-        # 传递停止检查和进度回调
-        def stop_check():
-            if self.task_id:
-                return task_manager.should_stop(self.task_id)
-            return False
-        
-        def progress_callback(current, total):
-            self._update_progress(current, total)
+        saved = 0
+        batch: List[Dict[str, Any]] = []
 
-        details = activity_api.crawl_details_api(self.driver, act_ids, stop_check=stop_check, progress_callback=progress_callback)
+        for i, aid in enumerate(act_ids, 1):
+            if self._check_stop():
+                break
+            try:
+                d = activity_api.fetch_activity_detail(self.driver, aid)
+                if d:
+                    batch.append(d)
+            except Exception as e:
+                self._log(f"详情 {aid} 拉取失败: {e}")
 
-        # 检查停止信号
-        if self._check_stop():
-            return details
+            if len(batch) >= batch_size:
+                saved += activity_repo.save_details(self.db, batch)
+                batch = []
+                self._log(f"已保存 {saved}/{total} 个详情")
+                self._update_progress(i, total)
 
-        # 保存到数据库
-        self._save_activity_details_to_db(details)
+        # 收尾剩余批次
+        if batch:
+            saved += activity_repo.save_details(self.db, batch)
 
-        self._log(f"活动详情爬取完成，共 {len(details)} 个")
-        self._update_progress(len(details), len(act_ids))
+        self._log(f"活动详情爬取完成，共保存 {saved} 个")
+        self._update_progress(total, total)
+        return saved
 
-        return details
-
-    def crawl_all_activity_details(self, statuses: Optional[List[str]] = None) -> List[Dict[str, Any]]:
-        """全量同步活动详情(API,秒级/个)。
+    def crawl_all_activity_details(self, statuses: Optional[List[str]] = None) -> int:
+        """全量同步活动详情(API,分批入库)。
 
         statuses: 只爬这些状态的活动;None 则爬库里全部活动。
         从 activities 表取 act_id,逐个 detailById 拉完整详情(含 QQ 群)入库。
+        返回成功保存的详情数。
         """
         from app.models import Activity
         q = self.db.query(Activity.act_id)
@@ -149,7 +158,7 @@ class CrawlerService:
         scope = "/".join(statuses) if statuses else "全部"
         self._log(f"全量详情同步({scope}): 共 {len(act_ids)} 个活动")
         if not act_ids:
-            return []
+            return 0
         return self.crawl_activity_details_batch(act_ids)
 
     def crawl_participants_for_activities(
@@ -248,8 +257,7 @@ class CrawlerService:
         if active_ids and not self._check_stop():
             # ---------- 2. 活动详情 ----------
             self._log(f"【2/3】爬取 {len(active_ids)} 个活动详情(含 QQ 群)...")
-            details = self.crawl_activity_details_batch(active_ids)
-            details_count = len(details)
+            details_count = self.crawl_activity_details_batch(active_ids)
 
         if active_ids and not self._check_stop():
             # ---------- 3. 参与者 ----------
