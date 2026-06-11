@@ -121,7 +121,7 @@ class CrawlerService:
         def progress_callback(current, total):
             self._update_progress(current, total)
 
-        details = crawl_activity_details(self.driver, act_ids, stop_check=stop_check, progress_callback=progress_callback)
+        details = activity_api.crawl_details_api(self.driver, act_ids, stop_check=stop_check, progress_callback=progress_callback)
 
         # 检查停止信号
         if self._check_stop():
@@ -134,6 +134,23 @@ class CrawlerService:
         self._update_progress(len(details), len(act_ids))
 
         return details
+
+    def crawl_all_activity_details(self, statuses: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        """全量同步活动详情(API,秒级/个)。
+
+        statuses: 只爬这些状态的活动;None 则爬库里全部活动。
+        从 activities 表取 act_id,逐个 detailById 拉完整详情(含 QQ 群)入库。
+        """
+        from app.models import Activity
+        q = self.db.query(Activity.act_id)
+        if statuses:
+            q = q.filter(Activity.finish_status.in_(statuses))
+        act_ids = [r[0] for r in q.all() if r[0]]
+        scope = "/".join(statuses) if statuses else "全部"
+        self._log(f"全量详情同步({scope}): 共 {len(act_ids)} 个活动")
+        if not act_ids:
+            return []
+        return self.crawl_activity_details_batch(act_ids)
 
     def crawl_participants_for_activities(
         self,

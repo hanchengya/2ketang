@@ -3,7 +3,7 @@
 """
 爬虫控制API
 """
-from typing import Any, List
+from typing import Any, List, Optional
 from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -193,6 +193,47 @@ def crawl_details(
     )
 
 
+class SyncDetailsRequest(BaseModel):
+    """全量详情同步请求(statuses 为空则同步全部活动)"""
+    statuses: Optional[List[str]] = None
+
+
+@router.post("/sync-details", response_model=TaskStartResponse)
+def sync_details(
+    request: SyncDetailsRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> Any:
+    """全量同步活动详情(API,把所有/指定状态活动的完整详情拉下来入库)。"""
+    task_id = task_manager.create_task(CrawlerTaskType.details, db)
+
+    def run_crawler():
+        from app.database import SessionLocal
+        db_session = SessionLocal()
+        crawler_service = CrawlerService(db_session, task_id)
+        try:
+            scope = "/".join(request.statuses) if request.statuses else "全部活动"
+            task_manager.update_status(task_id, db_session, CrawlerTaskStatus.running, f"开始全量同步详情({scope})")
+            details = crawler_service.crawl_all_activity_details(request.statuses)
+            if task_manager.should_stop(task_id):
+                task_manager.update_status(task_id, db_session, CrawlerTaskStatus.stopped, "任务已停止")
+            else:
+                task_manager.update_status(
+                    task_id, db_session, CrawlerTaskStatus.completed,
+                    f"全量详情同步完成，共 {len(details)} 个"
+                )
+        except Exception as e:
+            task_manager.append_log(task_id, db_session, f"错误: {str(e)}")
+            task_manager.update_status(task_id, db_session, CrawlerTaskStatus.failed, f"任务失败: {str(e)}")
+        finally:
+            crawler_service.stop_driver()
+            db_session.close()
+
+    background_tasks.add_task(run_crawler)
+    return TaskStartResponse(task_id=task_id, status="started", message="全量详情同步任务已启动")
+
+
 @router.post("/crawl-students", response_model=TaskStartResponse)
 def crawl_students(
     background_tasks: BackgroundTasks,
@@ -359,7 +400,7 @@ def notify_sign(
     current_user: User = Depends(get_current_user)
 ) -> Any:
     """手动触发: 检查进行中活动的签到/签退,达阈值给报名者发订阅消息(每活动每类型只发一次)。"""
-    task_id = task_manager.create_task(CrawlerTaskType.script_sign_in, db)
+    task_id = task_manager.create_task(CrawlerTaskType.notify_sign, db)
 
     def run():
         from app.database import SessionLocal
@@ -412,7 +453,7 @@ def notify_enrolled(
     current_user: User = Depends(get_current_user)
 ) -> Any:
     """手动触发: 给待开始活动的报名者发"报名成功"通知(每活动只发一次)。"""
-    task_id = task_manager.create_task(CrawlerTaskType.script_new_activity, db)
+    task_id = task_manager.create_task(CrawlerTaskType.notify_enrolled, db)
 
     def run():
         from app.database import SessionLocal
@@ -465,7 +506,7 @@ def notify_enrollable(
     current_user: User = Depends(get_current_user)
 ) -> Any:
     """手动触发: 给报名中活动的有权限已绑定学生发"可报名"通知(每活动只发一次)。"""
-    task_id = task_manager.create_task(CrawlerTaskType.script_new_activity, db)
+    task_id = task_manager.create_task(CrawlerTaskType.notify_enrollable, db)
 
     def run():
         from app.database import SessionLocal

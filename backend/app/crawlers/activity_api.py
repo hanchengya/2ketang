@@ -5,19 +5,22 @@
 
 接口(均 /manage/server):
   /activity/actAllList          活动列表(按 listType 分状态)
+  /activity/detailById          活动详情(含院系/年级/地点/简介等全字段)
   /activity/member-personal     报名列表(含 role/identity 身份)
   /activity/member/info/all     签到签退名单(含 inTime/outTime)
 
 认证走 source_api.source_api_get。Selenium 仅用于登录拿 sessionKey/cookie。
 """
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.core.logging import get_logger
 from app.crawlers.source_api import source_api_get
+from app.utils.qq_extractor import extract_qq_groups, format_qq_groups
 
 log = get_logger(__name__)
 
 ACT_REFERER = "https://2ketangpc.svtcc.edu.cn/communist/activityDown?oto=0"
+DETAIL_REFERER = "https://2ketangpc.svtcc.edu.cn/communist/activity/detail"
 
 # listType → 状态名(与 selenium 版 tab 一致;数字即 tab-id 数字)
 LIST_TYPE_STATUS = {
@@ -103,6 +106,46 @@ def crawl_all_activities_api(driver, list_types=None, stop_check=None) -> Dict[s
         result[name] = acts
         log.info("活动状态[%s] 拉取 %d 条", name, len(acts))
     return result
+
+
+# ============ 活动详情 ============
+
+def fetch_activity_detail(driver, act_id: int) -> Optional[Dict]:
+    """某活动的完整详情(API 版,秒级,替代 selenium)。
+
+    返回的 dict 字段名与源站一致(actName/calssName/collegeName/gradeName/
+    pitchAddress/introduce/starTime/endTime/job/peopleLimit/hours...),
+    并补 qq_groups(从 introduce 提取,源站无独立 QQ 字段)。直接喂 activity_repo.save_details。
+    """
+    resp = source_api_get(driver, "/activity/detailById", {"actId": str(act_id)},
+                          referer=DETAIL_REFERER)
+    inner = resp.get("data") if isinstance(resp, dict) else None
+    if not isinstance(inner, dict) or str(inner.get("code")) != "200":
+        return None
+    detail = inner.get("data")
+    if not isinstance(detail, dict):
+        return None
+    detail["actId"] = act_id  # 保证主键存在
+    detail["qq_groups"] = format_qq_groups(extract_qq_groups(detail.get("introduce") or ""))
+    return detail
+
+
+def crawl_details_api(driver, act_ids, stop_check=None, progress_callback=None) -> List[Dict]:
+    """批量爬活动详情(逐个 detailById)。签名兼容 selenium 版 crawl_activity_details。"""
+    out: List[Dict] = []
+    total = len(act_ids)
+    for i, aid in enumerate(act_ids, 1):
+        if stop_check and stop_check():
+            break
+        try:
+            d = fetch_activity_detail(driver, aid)
+            if d:
+                out.append(d)
+        except Exception:
+            log.exception("拉活动详情失败 act_id=%s", aid)
+        if progress_callback:
+            progress_callback(i, total)
+    return out
 
 
 # ============ 报名列表 ============
