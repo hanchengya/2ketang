@@ -70,6 +70,17 @@ export function fullCrawl() {
 }
 
 /**
+ * 全量同步活动详情(statuses 为空 = 所有活动)
+ */
+export function syncDetails(statuses = null) {
+  return request({
+    url: '/crawler/sync-details',
+    method: 'post',
+    data: { statuses }
+  })
+}
+
+/**
  * 停止任务
  */
 export function stopTask(taskId) {

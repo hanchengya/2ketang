@@ -393,6 +393,7 @@ import {
   crawlStudents,
   crawlParticipants,
   fullCrawl,
+  syncDetails,
   stopTask,
   getTasks,
   getTaskLogs,
@@ -448,6 +449,19 @@ const crawlers = reactive([
     type: 'details',
     name: '活动详情',
     description: '爬取活动的详细信息（需先选择活动）',
+    icon: markRaw(Document),
+    running: false,
+    starting: false,
+    status: 'idle',
+    task_id: null,
+    current_count: 0,
+    total_count: 0,
+    lastRun: null
+  },
+  {
+    type: 'sync_details',
+    name: '全量同步详情',
+    description: '拉取所有活动的完整详情(院系/年级/地点/QQ群/简介),API 提速',
     icon: markRaw(Document),
     running: false,
     starting: false,
@@ -613,6 +627,13 @@ const startCrawler = async (crawler) => {
       case 'participants':
         pendingCrawlerType.value = 'participants'
         await openActivityDialog()
+        return
+      case 'sync_details':
+        response = await syncDetails()
+        ElMessage.success(response.message || '全量详情同步已启动')
+        ElMessage.info('全量约需 25-40 分钟,进度见下方任务历史')
+        await loadTasks()
+        startPolling()
         return
     }
 
